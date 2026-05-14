@@ -131,13 +131,20 @@ app.post("/addCustomer", async (req, res) => {
   try {
     await sql.connect(config);
     const checkMobile = await sql.query`SELECT TOP 1 Mobile FROM Customers WHERE Mobile = ${Mobile}`;
-
     if (checkMobile.recordset.length > 0) {
-      return res.send({ status: "duplicate_mobile" });
+      await sql.query`DELETE FROM Customers WHERE Mobile = ${Mobile}`;
     }
-
-    await sql.query`INSERT INTO Customers (CustomerName, StreetName, Area, City, State, Mobile, Password, Empid, Location) VALUES
-      (${CustomerName}, ${StreetName}, ${Area}, ${City}, ${State}, ${Mobile}, ${Password}, ${Empid}, ${Location}) `;
+    const insertReq = new sql.Request();
+    insertReq.input('CustomerName', sql.NVarChar, CustomerName);
+    insertReq.input('StreetName', sql.NVarChar, StreetName);
+    insertReq.input('Area', sql.NVarChar, Area);
+    insertReq.input('City', sql.NVarChar, City);
+    insertReq.input('State', sql.NVarChar, State);
+    insertReq.input('Mobile', sql.NVarChar, Mobile);
+    insertReq.input('Password', sql.NVarChar, Password);
+    insertReq.input('Empid', sql.NVarChar, Empid || '');
+    insertReq.input('Location', sql.NVarChar, Location || '');
+    await insertReq.query(`INSERT INTO Customers (CustomerName, StreetName, Area, City, State, Mobile, Password, Empid, Location, RDATE) VALUES (@CustomerName, @StreetName, @Area, @City, @State, @Mobile, @Password, @Empid, @Location, CONVERT(DATE,GETDATE()))`);
     res.send({ status: "success" });
   } catch (err) {
     console.log(err);
@@ -264,7 +271,7 @@ app.get("/ledger", async (req, res) => {
   try {
     await sql.connect(config);
     const result = await sql.query`
-     SELECT INSTALLMENT, CONVERT(VARCHAR,RDATE,105) AS DATE, RECEIPTNO, AMOUNT, RATE, WEIGHT, ISNULL(BonusWeight,0) AS BONUSWEIGHT FROM SCHEMETRAN WHERE ISNULL(CANCEL,'') = '' AND GROUPCODE + '-' + CONVERT(VARCHAR,REGNO) = ${accno} ORDER BY RDATE`;
+      SELECT INSTALLMENT, CONVERT(VARCHAR,RDATE,105) AS DATE, RECEIPTNO, AMOUNT, RATE, WEIGHT, ISNULL(BonusWeight,0) AS BONUSWEIGHT FROM SCHEMETRAN WHERE ISNULL(CANCEL,'') = '' AND GROUPCODE + '-' + CONVERT(VARCHAR,REGNO) = ${accno} ORDER BY RDATE`;
     res.send(result.recordset);
   } catch (err) {
     console.log(err);
@@ -334,9 +341,9 @@ app.post("/payment-success", async (req, res) => {
       INSERT INTO SCHEMETRAN (GROUPCODE, REGNO, AMOUNT, WEIGHT, RATE,  RDATE, CANCEL, SYSTEMID, INSTALLMENT, EMPID, 
       REMARKS, ENTREFNO, USERID, BonusWeight, APPVER, ST_ID, SNO, RECEIPTNO)
       SELECT  SUBSTRING(accno, 1, CHARINDEX('-', accno) - 1), SUBSTRING(accno, CHARINDEX('-', accno) + 1, LEN(accno)),
-      AMOUNT, WEIGHT, RATE, CONVERT(DATE,GETDATE()), '', 1, installment, 1, payment_id,'ON' + REPLACE(CONVERT(VARCHAR(10), CONVERT(DATE,GETDATE()), 112) + CONVERT(VARCHAR(8), CONVERT(DATE,GETDATE()), 108), ':', ''), 999, BONUS, 'ONL APP',
-      'ON' + REPLACE(CONVERT(VARCHAR(10), CONVERT(DATE,GETDATE()), 112) + CONVERT(VARCHAR(8), CONVERT(DATE,GETDATE()), 108), ':', ''),
-      'ON' + REPLACE(CONVERT(VARCHAR(10), CONVERT(DATE,GETDATE()), 112) + CONVERT(VARCHAR(8), CONVERT(DATE,GETDATE()), 108), ':', ''), TRANID FROM PaymentTable  WHERE payment_id = ${payment_id}`;
+      AMOUNT, WEIGHT, RATE, CONVERT(DATE,GETDATE()), '', 1, installment, 1, payment_id,'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''), 999, BONUS, 'ONL APP',
+      'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''),
+      'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''), TRANID FROM PaymentTable  WHERE payment_id = ${payment_id}`;
 
     console.log("✅ Stored in SCHEMETRAN successfully");
 
@@ -386,6 +393,7 @@ app.post("/newschpay-success", async (req, res) => {
     area,
     city,
     mobile,
+
     bonus
 
   } = req.body;
@@ -402,74 +410,78 @@ app.post("/newschpay-success", async (req, res) => {
     await sql.connect(config);
 
     const payment = await razorpay.payments.fetch(payment_id);
-
-    console.log("Razorpay Response:", payment);
-
-    // ✅ AUTO DETECT MODE
-    const payment_mode = payment.method; // upi / card / wallet / netbanking
-    const upi_id = payment.vpa || null; 
+    const payment_mode = payment.method;
+    const upi_id = payment.vpa || null;
     const card_last4 = payment.card?.last4 || null;
     const card_type = payment.card?.network || null;
 
-    // ✅ STORE IN PaymentTable
-    console.log("📝 Storing new scheme in PaymentTable with bonus:", bonus);
-    await sql.query`
-      INSERT INTO PaymentTable
-      (trandate,payment_id, order_id, amount, accno, metal, rate, weight, installment, payment_mode, upi_id, card_last4, card_type,customername,address,area,city,mobile,bonus)
-      VALUES
-      (getdate(),${payment_id}, ${order_id}, ${amount}, ${accno}, ${metal}, ${rate}, ${weight}, ${installment}, ${payment_mode}, ${upi_id}, ${card_last4},${card_type}, ${customername},${address},${area},${city},${mobile},${bonus})    
-    `;
-    
-    console.log("✅ Stored in PaymentTable successfully");
+    // ✅ Use transaction to prevent duplicate REGNO
+    const pool = await sql.connect(config);
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
 
-    await sql.query`
-      INSERT INTO SCHEMETRAN (GROUPCODE, REGNO, AMOUNT, WEIGHT, RATE,  RDATE, CANCEL, SYSTEMID, INSTALLMENT, EMPID, 
-      REMARKS, ENTREFNO, USERID, BonusWeight, APPVER, ST_ID, SNO, RECEIPTNO)
-      SELECT  SUBSTRING(accno, 1, CHARINDEX('-', accno) - 1), SUBSTRING(accno, CHARINDEX('-', accno) + 1, LEN(accno)),
-      AMOUNT, WEIGHT, RATE, CONVERT(DATE,GETDATE()), '', 1, 1, 1, payment_id,'ON' + REPLACE(CONVERT(VARCHAR(10), CONVERT(DATE,GETDATE()), 112) + CONVERT(VARCHAR(8), CONVERT(DATE,GETDATE()), 108), ':', ''), 999, BONUS, 'ONL APP',
-      'ON' + REPLACE(CONVERT(VARCHAR(10), CONVERT(DATE,GETDATE()), 112) + CONVERT(VARCHAR(8), CONVERT(DATE,GETDATE()), 108), ':', ''),
-      'ON' + REPLACE(CONVERT(VARCHAR(10), CONVERT(DATE,GETDATE()), 112) + CONVERT(VARCHAR(8), CONVERT(DATE,GETDATE()), 108), ':', ''), TRANID FROM PaymentTable  WHERE payment_id = ${payment_id}`;
+    try {
+      const req1 = new sql.Request(transaction);
+      const groupcode = accno.split('-')[0];
+      await req1.query(`UPDATE SCHEME WITH (UPDLOCK) SET REGNO = REGNO WHERE GROUPCODE = '${groupcode}'`);
 
-    console.log("✅ Stored in SCHEMETRAN successfully");
+      const req2 = new sql.Request(transaction);
+      req2.input('payment_id', sql.NVarChar, payment_id);
+      req2.input('order_id', sql.NVarChar, order_id);
+      req2.input('amount', sql.Decimal(18,2), amount);
+      req2.input('accno', sql.NVarChar, accno);
+      req2.input('metal', sql.NVarChar, metal);
+      req2.input('rate', sql.Decimal(18,2), rate);
+      req2.input('weight', sql.Decimal(18,3), weight);
+      req2.input('installment', sql.Int, installment);
+      req2.input('payment_mode', sql.NVarChar, payment_mode);
+      req2.input('upi_id', sql.NVarChar, upi_id);
+      req2.input('card_last4', sql.NVarChar, card_last4);
+      req2.input('card_type', sql.NVarChar, card_type);
+      req2.input('customername', sql.NVarChar, customername);
+      req2.input('address', sql.NVarChar, address);
+      req2.input('area', sql.NVarChar, area);
+      req2.input('city', sql.NVarChar, city);
+      req2.input('mobile', sql.NVarChar, mobile);
+      req2.input('bonus', sql.Decimal(18,3), bonus);
+      await req2.query(`INSERT INTO PaymentTable (trandate,payment_id,order_id,amount,accno,metal,rate,weight,installment,payment_mode,upi_id,card_last4,card_type,customername,address,area,city,mobile,bonus) VALUES (getdate(),@payment_id,@order_id,@amount,@accno,@metal,@rate,@weight,@installment,@payment_mode,@upi_id,@card_last4,@card_type,@customername,@address,@area,@city,@mobile,@bonus)`);
 
-    await sql.query`
-      INSERT INTO SCHEMECOLLECT (GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT, MODEPAY,ACCODE,ENTREFNO,CANCEL,SYSTEMID,  
-      USERID,APPVER,TRANMODE,SC_ID,SNO,CHQ_CARDNO,CHQDATE,CHQBANK)
-      SELECT  GROUPCODE, REGNO, RECEIPTNO, RDATE, AMOUNT, (SELECT CASE WHEN PAYMENT_MODE = 'upi' THEN 'E' ELSE 'C' END FROM PAYMENTTABLE WHERE payment_id = ${payment_id}), 
-      '0000001', ENTREFNO, '', SYSTEMID, 999, 'ONL APP', 'D', ST_ID, SNO, REMARKS, CONVERT(DATE,GETDATE()), (SELECT ${upi_id} FROM PAYMENTTABLE WHERE payment_id = ${payment_id}) 
-      FROM SCHEMETRAN WHERE REMARKS = ${payment_id}`;
-    
-    console.log("✅ Stored in SCHEMECOLLECT successfully");
+      const req3 = new sql.Request(transaction);
+      req3.input('payment_id', sql.NVarChar, payment_id);
+      req3.input('bonus', sql.Decimal(18,3), bonus);
+      await req3.query(`INSERT INTO SCHEMETRAN (GROUPCODE,REGNO,AMOUNT,WEIGHT,RATE,RDATE,CANCEL,SYSTEMID,INSTALLMENT,EMPID,REMARKS,ENTREFNO,USERID,BonusWeight,APPVER,ST_ID,SNO,RECEIPTNO) SELECT SUBSTRING(accno,1,CHARINDEX('-',accno)-1),SUBSTRING(accno,CHARINDEX('-',accno)+1,LEN(accno)),AMOUNT,WEIGHT,RATE,CONVERT(DATE,GETDATE()),'',1,1,1,payment_id,'ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),999,@bonus,'ONL APP','ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),'ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),TRANID FROM PaymentTable WHERE payment_id=@payment_id`);
 
-    await sql.query`
-      INSERT INTO SCHPERSONALINFO 
-      (PERSONALID,PNAME,SNAME,DOORNO,ADDRESS1,ADDRESS2,AREA,CITY,STATE,COUNTRY,PINCODE,MOBILE,NOMENI,EMAIL,APPVER,USERID) 
-      SELECT  GROUPCODE + CONVERT(VARCHAR,REGNO) + CONVERT(VARCHAR,RECEIPTNO),  ${customername}, '','',
-      ${address},'',${area}, ${city},'', '','',${mobile},'','', APPVER,USERID FROM SCHEMETRAN WHERE REMARKS = ${payment_id}`;  
-    
-    console.log("✅ Stored in SCHPERSONALINFO successfully");
+      const req4 = new sql.Request(transaction);
+      req4.input('payment_id', sql.NVarChar, payment_id);
+      req4.input('upi_id', sql.NVarChar, upi_id);
+      await req4.query(`INSERT INTO SCHEMECOLLECT (GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT,MODEPAY,ACCODE,ENTREFNO,CANCEL,SYSTEMID,USERID,APPVER,TRANMODE,SC_ID,SNO,CHQ_CARDNO,CHQDATE,CHQBANK) SELECT GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT,(SELECT CASE WHEN PAYMENT_MODE='upi' THEN 'E' ELSE 'C' END FROM PAYMENTTABLE WHERE payment_id=@payment_id),'0000001',ENTREFNO,'',SYSTEMID,999,'ONL APP','D',ST_ID,SNO,REMARKS,CONVERT(DATE,GETDATE()),@upi_id FROM SCHEMETRAN WHERE REMARKS=@payment_id`);
 
-    await sql.query`
-      INSERT INTO SCHEMEMAST (COMPANYID,SCHEMEID,GROUPCODE,REGNO, JOINDATE, IEMP, IGROUPCODE,  IREGNO,
-      HOMECOLLECT,REMARK,SIGNATUREPATH, USERID,OPENINGDATE ,SNO,COSTID,TOTALINS,INTRO,TOTALQTY,APPVER,PREVILEGEID)  
-      SELECT 'GTM', (SELECT SCHEMEID FROM SCHEME WHERE GROUPCODE = T.GROUPCODE), GROUPCODE, REGNO, RDATE, 0, '',0, 
-      'N', '', '',  999, RDATE, GROUPCODE + CONVERT(VARCHAR,REGNO) + CONVERT(VARCHAR,RECEIPTNO),'',(SELECT Instalment FROM SCHEME WHERE GROUPCODE = T.GROUPCODE),0,1,APPVER,0
-      FROM SCHEMETRAN T WHERE REMARKS = ${payment_id}`;    
+      const req5 = new sql.Request(transaction);
+      req5.input('payment_id', sql.NVarChar, payment_id);
+      req5.input('customername', sql.NVarChar, customername);
+      req5.input('address', sql.NVarChar, address);
+      req5.input('area', sql.NVarChar, area);
+      req5.input('city', sql.NVarChar, city);
+      req5.input('mobile', sql.NVarChar, mobile);
+      await req5.query(`INSERT INTO SCHPERSONALINFO (PERSONALID,PNAME,SNAME,DOORNO,ADDRESS1,ADDRESS2,AREA,CITY,STATE,COUNTRY,PINCODE,MOBILE,NOMENI,EMAIL,APPVER,USERID) SELECT GROUPCODE+CONVERT(VARCHAR,REGNO)+CONVERT(VARCHAR,RECEIPTNO),@customername,'','',@address,'',@area,@city,'','','',@mobile,'','',APPVER,USERID FROM SCHEMETRAN WHERE REMARKS=@payment_id`);
 
-    console.log("✅ Stored in SCHEMEMAST successfully");
+      const req6 = new sql.Request(transaction);
+      req6.input('payment_id', sql.NVarChar, payment_id);
+      await req6.query(`INSERT INTO SCHEMEMAST (COMPANYID,SCHEMEID,GROUPCODE,REGNO,JOINDATE,IEMP,IGROUPCODE,IREGNO,HOMECOLLECT,REMARK,SIGNATUREPATH,USERID,OPENINGDATE,SNO,COSTID,TOTALINS,INTRO,TOTALQTY,APPVER,PREVILEGEID) SELECT 'GTM',(SELECT SCHEMEID FROM SCHEME WHERE GROUPCODE=T.GROUPCODE),GROUPCODE,REGNO,RDATE,0,'',0,'N','','',999,RDATE,GROUPCODE+CONVERT(VARCHAR,REGNO)+CONVERT(VARCHAR,RECEIPTNO),'',(SELECT Instalment FROM SCHEME WHERE GROUPCODE=T.GROUPCODE),0,1,APPVER,0 FROM SCHEMETRAN T WHERE REMARKS=@payment_id`);
 
-    await sql.query`
-      UPDATE SCHEME SET REGNO = REGNO + 1 WHERE GROUPCODE IN (SELECT GROUPCODE FROM SCHEMETRAN T WHERE REMARKS = ${payment_id})`; 
+      const req7 = new sql.Request(transaction);
+      req7.input('payment_id', sql.NVarChar, payment_id);
+      await req7.query(`UPDATE SCHEME SET REGNO=REGNO+1 WHERE GROUPCODE IN (SELECT GROUPCODE FROM SCHEMETRAN T WHERE REMARKS=@payment_id)`);
 
-    console.log("✅ Updated SCHEME successfully");
+      await transaction.commit();
+      console.log('✅ Transaction committed successfully');
+      res.json({ success: true, payment_mode, upi_id, card_last4, card_type });
 
-    res.json({
-      success: true,
-      payment_mode,
-      upi_id,
-      card_last4,
-      card_type
-    });
+    } catch (innerErr) {
+      await transaction.rollback();
+      console.log('❌ Transaction rolled back:', innerErr.message);
+      res.json({ success: false, error: innerErr.message });
+    }
 
   } catch (err) {
     console.log("❌ ERROR newschpay:", err.message);
