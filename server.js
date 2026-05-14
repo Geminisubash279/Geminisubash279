@@ -105,7 +105,26 @@ app.post("/verifyotp", async (req, res) => {
   }
 });
 
+const admin = require("firebase-admin");
 
+const serviceAccount = require("./firebase-adminsdk.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const message = {
+  notification: {
+    title: "PKM Jewellery",
+    body: "Today Gold Rate Updated"
+  },
+  tokens: allTokensArray
+};
+
+admin.messaging().sendEachForMulticast(message)
+.then((response) => {
+  console.log("Notification Sent");
+});
 
 
 // Login

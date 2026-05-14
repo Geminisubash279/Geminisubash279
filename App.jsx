@@ -10,6 +10,8 @@ import Ledger from "./pages/Ledger";
 import PayNow from "./pages/PayNow";
 import NewScheme from "./pages/newscheme";
 import SchemeDetails from "./pages/SchemeDetails";
+import messaging from '@react-native-firebase/messaging';
+import {PermissionsAndroid, Platform} from 'react-native';
 
 import {
   Provider as PaperProvider,
@@ -19,6 +21,22 @@ import {
 } from 'react-native-paper';
 
 const Stack = createNativeStackNavigator();
+
+async function requestPermission() {
+  if (Platform.OS === 'android' && Platform.Version >= 33) {
+    await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+    );
+  }
+
+  await messaging().requestPermission();
+
+  const token = await messaging().getToken();
+
+  console.log('FCM Token:', token);
+}
+
+requestPermission();
 
 function LoginScreen({ navigation }) {
   const [mobile, setMobile] = useState('');
