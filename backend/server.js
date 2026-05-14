@@ -144,7 +144,7 @@ app.post("/addCustomer", async (req, res) => {
     insertReq.input('Password', sql.NVarChar, Password);
     insertReq.input('Empid', sql.NVarChar, Empid || '');
     insertReq.input('Location', sql.NVarChar, Location || '');
-    await insertReq.query(`INSERT INTO Customers (CustomerName, StreetName, Area, City, State, Mobile, Password, Empid, Location, RDATE) VALUES (@CustomerName, @StreetName, @Area, @City, @State, @Mobile, @Password, @Empid, @Location, CONVERT(DATE,GETDATE()))`);
+    await insertReq.query(`INSERT INTO Customers (CustomerName, StreetName, Area, City, State, Mobile, Password, Empid, Location, RDATE) VALUES (@CustomerName, @StreetName, @Area, @City, @State, @Mobile, @Password, @Empid, @Location, CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'))`);
     res.send({ status: "success" });
   } catch (err) {
     console.log(err);
@@ -255,7 +255,7 @@ app.get("/getCustomerAccount", async (req, res) => {
     (CASE WHEN ISNULL(DOCLOSE,'') = '' THEN 'ACTIVE' ELSE 'CLOSED' END)  STATUS, 
     (SELECT COUNT(*) FROM SCHEMETRAN T WHERE GROUPCODE = M.GROUPCODE AND REGNO = M.REGNO AND ISNULL(CANCEL,'') = '') TOTALINS,
     CONVERT(VARCHAR,DATEADD(day, 365, JOINDATE),105) AS LASTRECDATE, 
-    (SELECT COUNT(*) FROM SCHEMETRAN WHERE GROUPCODE = M.GROUPCODE AND REGNO = M.REGNO AND ISNULL(CANCEL,'') = '' AND MONTH(RDATE) = MONTH(CONVERT(DATE,GETDATE())) AND YEAR(RDATE) = YEAR(CONVERT(DATE,GETDATE()))) AS PAIDTHISMONTH,
+    (SELECT COUNT(*) FROM SCHEMETRAN WHERE GROUPCODE = M.GROUPCODE AND REGNO = M.REGNO AND ISNULL(CANCEL,'') = '' AND MONTH(RDATE) = MONTH(CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time')) AND YEAR(RDATE) = YEAR(CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'))) AS PAIDTHISMONTH,
     (SELECT SUM(AMOUNT) FROM SCHEMETRAN T WHERE GROUPCODE = M.GROUPCODE AND REGNO = M.REGNO AND ISNULL(CANCEL,'') = '') AMOUNT, 
     (SELECT CONVERT(NUMERIC(15,3),SUM(WEIGHT)) AS WE FROM SCHEMETRAN T WHERE GROUPCODE = M.GROUPCODE AND REGNO = M.REGNO AND ISNULL(CANCEL,'') = '') WEIGHT from SCHEMEMAST M
     LEFT JOIN SCHEME S ON S.SCHEMEID = M.SCHEMEID WHERE M.SNO IN (SELECT PERSONALID FROM SCHPERSONALINFO WHERE MOBILE =  ${mobile}) ORDER BY M.JOINDATE DESC `;
@@ -341,7 +341,7 @@ app.post("/payment-success", async (req, res) => {
       INSERT INTO SCHEMETRAN (GROUPCODE, REGNO, AMOUNT, WEIGHT, RATE,  RDATE, CANCEL, SYSTEMID, INSTALLMENT, EMPID, 
       REMARKS, ENTREFNO, USERID, BonusWeight, APPVER, ST_ID, SNO, RECEIPTNO)
       SELECT  SUBSTRING(accno, 1, CHARINDEX('-', accno) - 1), SUBSTRING(accno, CHARINDEX('-', accno) + 1, LEN(accno)),
-      AMOUNT, WEIGHT, RATE, CONVERT(DATE,GETDATE()), '', 1, installment, 1, payment_id,'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''), 999, BONUS, 'ONL APP',
+      AMOUNT, WEIGHT, RATE, CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'), '', 1, installment, 1, payment_id,'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''), 999, BONUS, 'ONL APP',
       'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''),
       'ON' + REPLACE(CONVERT(VARCHAR(10), GETDATE(), 112) + CONVERT(VARCHAR(8), GETDATE(), 108), ':', ''), TRANID FROM PaymentTable  WHERE payment_id = ${payment_id}`;
 
@@ -351,7 +351,7 @@ app.post("/payment-success", async (req, res) => {
       INSERT INTO SCHEMECOLLECT (GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT, MODEPAY,ACCODE,ENTREFNO,CANCEL,SYSTEMID,  
       USERID,APPVER,TRANMODE,SC_ID,SNO,CHQ_CARDNO,CHQDATE,CHQBANK)
       SELECT  GROUPCODE, REGNO, RECEIPTNO, RDATE, AMOUNT, (SELECT CASE WHEN PAYMENT_MODE = 'upi' THEN 'E' ELSE 'C' END FROM PAYMENTTABLE WHERE payment_id = ${payment_id}), 
-      '0000001', ENTREFNO, '', SYSTEMID, 999, 'ONL APP', 'D', ST_ID, SNO, REMARKS, CONVERT(DATE,GETDATE()), (SELECT ${upi_id} FROM PAYMENTTABLE WHERE payment_id = ${payment_id}) 
+      '0000001', ENTREFNO, '', SYSTEMID, 999, 'ONL APP', 'D', ST_ID, SNO, REMARKS, CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'), (SELECT ${upi_id} FROM PAYMENTTABLE WHERE payment_id = ${payment_id}) 
       FROM SCHEMETRAN WHERE REMARKS = ${payment_id}`;
 
     console.log("✅ Stored in SCHEMECOLLECT successfully");
@@ -415,15 +415,16 @@ app.post("/newschpay-success", async (req, res) => {
     const card_last4 = payment.card?.last4 || null;
     const card_type = payment.card?.network || null;
 
-    // ✅ Use transaction to prevent duplicate REGNO
+    // ✅ Use SERIALIZABLE transaction to prevent duplicate REGNO
     const pool = await sql.connect(config);
     const transaction = new sql.Transaction(pool);
-    await transaction.begin();
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
     try {
       const req1 = new sql.Request(transaction);
       const groupcode = accno.split('-')[0];
-      await req1.query(`UPDATE SCHEME WITH (UPDLOCK) SET REGNO = REGNO WHERE GROUPCODE = '${groupcode}'`);
+      // Lock the SCHEME row exclusively so concurrent requests wait
+      await req1.query(`SELECT REGNO FROM SCHEME WITH (UPDLOCK, ROWLOCK) WHERE GROUPCODE = '${groupcode}'`);
 
       const req2 = new sql.Request(transaction);
       req2.input('payment_id', sql.NVarChar, payment_id);
@@ -449,12 +450,12 @@ app.post("/newschpay-success", async (req, res) => {
       const req3 = new sql.Request(transaction);
       req3.input('payment_id', sql.NVarChar, payment_id);
       req3.input('bonus', sql.Decimal(18,3), bonus);
-      await req3.query(`INSERT INTO SCHEMETRAN (GROUPCODE,REGNO,AMOUNT,WEIGHT,RATE,RDATE,CANCEL,SYSTEMID,INSTALLMENT,EMPID,REMARKS,ENTREFNO,USERID,BonusWeight,APPVER,ST_ID,SNO,RECEIPTNO) SELECT SUBSTRING(accno,1,CHARINDEX('-',accno)-1),SUBSTRING(accno,CHARINDEX('-',accno)+1,LEN(accno)),AMOUNT,WEIGHT,RATE,CONVERT(DATE,GETDATE()),'',1,1,1,payment_id,'ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),999,@bonus,'ONL APP','ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),'ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),TRANID FROM PaymentTable WHERE payment_id=@payment_id`);
+      await req3.query(`INSERT INTO SCHEMETRAN (GROUPCODE,REGNO,AMOUNT,WEIGHT,RATE,RDATE,CANCEL,SYSTEMID,INSTALLMENT,EMPID,REMARKS,ENTREFNO,USERID,BonusWeight,APPVER,ST_ID,SNO,RECEIPTNO) SELECT SUBSTRING(accno,1,CHARINDEX('-',accno)-1),SUBSTRING(accno,CHARINDEX('-',accno)+1,LEN(accno)),AMOUNT,WEIGHT,RATE,CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'),'',1,1,1,payment_id,'ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),999,@bonus,'ONL APP','ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),'ON'+REPLACE(CONVERT(VARCHAR(10),GETDATE(),112)+CONVERT(VARCHAR(8),GETDATE(),108),':',''),TRANID FROM PaymentTable WHERE payment_id=@payment_id`);
 
       const req4 = new sql.Request(transaction);
       req4.input('payment_id', sql.NVarChar, payment_id);
       req4.input('upi_id', sql.NVarChar, upi_id);
-      await req4.query(`INSERT INTO SCHEMECOLLECT (GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT,MODEPAY,ACCODE,ENTREFNO,CANCEL,SYSTEMID,USERID,APPVER,TRANMODE,SC_ID,SNO,CHQ_CARDNO,CHQDATE,CHQBANK) SELECT GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT,(SELECT CASE WHEN PAYMENT_MODE='upi' THEN 'E' ELSE 'C' END FROM PAYMENTTABLE WHERE payment_id=@payment_id),'0000001',ENTREFNO,'',SYSTEMID,999,'ONL APP','D',ST_ID,SNO,REMARKS,CONVERT(DATE,GETDATE()),@upi_id FROM SCHEMETRAN WHERE REMARKS=@payment_id`);
+      await req4.query(`INSERT INTO SCHEMECOLLECT (GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT,MODEPAY,ACCODE,ENTREFNO,CANCEL,SYSTEMID,USERID,APPVER,TRANMODE,SC_ID,SNO,CHQ_CARDNO,CHQDATE,CHQBANK) SELECT GROUPCODE,REGNO,RECEIPTNO,RDATE,AMOUNT,(SELECT CASE WHEN PAYMENT_MODE='upi' THEN 'E' ELSE 'C' END FROM PAYMENTTABLE WHERE payment_id=@payment_id),'0000001',ENTREFNO,'',SYSTEMID,999,'ONL APP','D',ST_ID,SNO,REMARKS,CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'),@upi_id FROM SCHEMETRAN WHERE REMARKS=@payment_id`);
 
       const req5 = new sql.Request(transaction);
       req5.input('payment_id', sql.NVarChar, payment_id);

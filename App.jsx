@@ -1,6 +1,15 @@
 import React, { useState, useRef, useEffect  } from 'react';
 import { BASE_URL } from './config';
 import { View, Button, Image, TouchableOpacity, StyleSheet, Alert, StatusBar, BackHandler, KeyboardAvoidingView, Platform, ScrollView, Linking } from 'react-native';
+import Icon from "react-native-vector-icons/FontAwesome";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import Homepage from './pages/homepage';
+import CustomerPage from './pages/customerdetails';
+import Ledger from "./pages/Ledger";
+import PayNow from "./pages/PayNow";
+import NewScheme from "./pages/newscheme";
+import SchemeDetails from "./pages/SchemeDetails";
 
 import {
   Provider as PaperProvider,
