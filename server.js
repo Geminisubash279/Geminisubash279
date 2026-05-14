@@ -115,7 +115,7 @@ admin.initializeApp({
 
 const message = {
   notification: {
-    title: "PKM Jewellery",
+    title: "GS Thanga Maligai",
     body: "Today Gold Rate Updated"
   },
   tokens: allTokensArray
