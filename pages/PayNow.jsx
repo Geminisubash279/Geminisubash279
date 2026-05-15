@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BASE_URL } from '../config';
-import { View, StyleSheet, FlatList, BackHandler, ActivityIndicator } from "react-native";
+import { View, StyleSheet, FlatList, BackHandler, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native";
 import { Provider as PaperProvider, Card, Appbar, Button, Text, TextInput } from "react-native-paper";
 import RazorpayCheckout from 'react-native-razorpay';
 import { useFocusEffect } from '@react-navigation/native';
@@ -220,6 +220,7 @@ const openRazorpay = () => {
         <Appbar.Content title="GS Thanga Maligai" color="#ffffff" />
       </Appbar.Header>
 
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
         
         <FlatList
@@ -350,6 +351,7 @@ const openRazorpay = () => {
             />
         
       </View>
+      </KeyboardAvoidingView>
     </PaperProvider>
   );
 }

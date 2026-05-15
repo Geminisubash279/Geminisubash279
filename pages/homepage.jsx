@@ -439,8 +439,20 @@ useEffect(() => {
       <FlatList
         data={customeracc}
         keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => (          
-          
+        renderItem={({ item }) => {
+          const isKubera = item.SCHEMENAME?.toUpperCase().includes('KUBERA');
+          const kuberaComplete = isKubera && item.TOTALINS >= 11;
+
+          // Calculate close date: LASTTRANDATE + 30 days
+          let closeDate = '';
+          if (kuberaComplete && item.LASTTRANDATE) {
+            const parts = item.LASTTRANDATE.split('-');
+            const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+            d.setDate(d.getDate() + 30);
+            closeDate = d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          }
+
+          return (
           <View style={[styles.recordBox, item.STATUS !== "ACTIVE" && styles.inactiveCard] }>
             {item.STATUS === "CLOSED" && (<Text style={styles.closedBadge}>CLOSED</Text>)}
             
@@ -496,17 +508,24 @@ useEffect(() => {
               </View>
             </View>
 
+            {kuberaComplete && (
+              <Text style={{ color: '#b8860b', fontWeight: 'bold', fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+                🏆 This card is Ready to close on {closeDate}
+              </Text>
+            )}
+
             <View style={styles.buttonRow}>
               <Button mode="outlined" style={styles.ledgerBtn} textColor="#6e1e1e" onPress={() =>
                   navigation.navigate("Ledger", { accno: item.ACCNO })}>Ledger</Button>
           
-              <Button mode="contained" style={styles.payBtn} textColor="#ffffff" disabled={(item.SCHEMENAME !== "DIGIGOLD" && item.SCHEMENAME !== "DIGISILVER") && (item.STATUS !== "ACTIVE" || item.PAIDTHISMONTH > 0)}
-                  onPress={() => navigation.navigate("PayNow", { accno: item.ACCNO, mobile: mobile }) } > Pay Now
+              <Button mode="contained" style={styles.payBtn} textColor="#ffffff"
+                disabled={kuberaComplete || ((item.SCHEMENAME !== "DIGIGOLD" && item.SCHEMENAME !== "DIGISILVER") && (item.STATUS !== "ACTIVE" || item.PAIDTHISMONTH > 0))}
+                onPress={() => navigation.navigate("PayNow", { accno: item.ACCNO, mobile: mobile })}> Pay Now
               </Button>
-            </View>            
-            
+            </View>
           </View>
-        )}
+          );
+        }}
       />
     </View>
   );

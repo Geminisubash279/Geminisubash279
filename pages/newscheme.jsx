@@ -1,6 +1,6 @@
 import React, {useEffect, useState } from "react";
 import { BASE_URL } from '../config';
-import { View, ScrollView, StyleSheet, BackHandler, ActivityIndicator } from "react-native";
+import { View, ScrollView, StyleSheet, BackHandler, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native";
 import { Text, TextInput, Button, Checkbox } from "react-native-paper";
 import { Provider as PaperProvider, Appbar, Card } from "react-native-paper";
 import Icon from "react-native-vector-icons/Ionicons";
@@ -168,6 +168,7 @@ function NewScheme({ navigation, route }) {
         />
         <Appbar.Content title="GS Thanga Maligai" color="#ffffff" />
       </Appbar.Header>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
     <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
 
       <Text style={styles.title}>Scheme Joining Form</Text>
@@ -313,6 +314,7 @@ function NewScheme({ navigation, route }) {
       </Button>
 
     </ScrollView>
+    </KeyboardAvoidingView>
     </PaperProvider>
   );
 }
