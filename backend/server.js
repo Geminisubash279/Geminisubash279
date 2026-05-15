@@ -332,7 +332,7 @@ app.post("/payment-success", async (req, res) => {
       INSERT INTO PaymentTable
       (trandate,payment_id, order_id, amount, accno, metal, rate, weight, installment, payment_mode, upi_id, card_last4, card_type,customername,address,area,city,mobile,bonus)
       VALUES
-      (getdate(),${payment_id}, ${order_id}, ${amount}, ${accno}, ${metal}, ${rate}, ${weight}, ${installment}, ${payment_mode}, ${upi_id}, ${card_last4},${card_type}, ${customername},${address},${area},${city},${mobile},${bonus})
+      (CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'),${payment_id}, ${order_id}, ${amount}, ${accno}, ${metal}, ${rate}, ${weight}, ${installment}, ${payment_mode}, ${upi_id}, ${card_last4},${card_type}, ${customername},${address},${area},${city},${mobile},${bonus})
     `;
 
     console.log("✅ Stored in PaymentTable successfully");
@@ -447,7 +447,7 @@ app.post("/newschpay-success", async (req, res) => {
       req2.input('city', sql.NVarChar, city);
       req2.input('mobile', sql.NVarChar, mobile);
       req2.input('bonus', sql.Decimal(18,3), bonus);
-      await req2.query(`INSERT INTO PaymentTable (trandate,payment_id,order_id,amount,accno,metal,rate,weight,installment,payment_mode,upi_id,card_last4,card_type,customername,address,area,city,mobile,bonus) VALUES (getdate(),@payment_id,@order_id,@amount,@accno,@metal,@rate,@weight,@installment,@payment_mode,@upi_id,@card_last4,@card_type,@customername,@address,@area,@city,@mobile,@bonus)`);
+      await req2.query(`INSERT INTO PaymentTable (trandate,payment_id,order_id,amount,accno,metal,rate,weight,installment,payment_mode,upi_id,card_last4,card_type,customername,address,area,city,mobile,bonus) VALUES (CONVERT(DATE, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time'),@payment_id,@order_id,@amount,@accno,@metal,@rate,@weight,@installment,@payment_mode,@upi_id,@card_last4,@card_type,@customername,@address,@area,@city,@mobile,@bonus)`);
 
       const req3 = new sql.Request(transaction);
       req3.input('payment_id', sql.NVarChar, payment_id);
