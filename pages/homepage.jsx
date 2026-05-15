@@ -442,10 +442,13 @@ useEffect(() => {
         renderItem={({ item }) => {
           const isKubera = item.SCHEMENAME?.toUpperCase().includes('KUBERA');
           const kuberaComplete = isKubera && item.TOTALINS >= 11;
+          const isThanga = item.SCHEMENAME?.toUpperCase().includes('THANGA');
+          const thangaComplete = isThanga && item.TOTALINS >= 15;
 
           // Calculate close date: LASTTRANDATE + 30 days
           let closeDate = '';
-          if (kuberaComplete && item.LASTTRANDATE) {
+          const schemeComplete = kuberaComplete || thangaComplete;
+          if (schemeComplete && item.LASTTRANDATE) {
             const parts = item.LASTTRANDATE.split('-');
             const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
             d.setDate(d.getDate() + 30);
@@ -508,7 +511,7 @@ useEffect(() => {
               </View>
             </View>
 
-            {kuberaComplete && (
+            {schemeComplete && (
               <Text style={{ color: '#b8860b', fontWeight: 'bold', fontSize: 13, marginTop: 6, textAlign: 'center' }}>
                 🏆 This card is Ready to close on {closeDate}
               </Text>
@@ -519,7 +522,7 @@ useEffect(() => {
                   navigation.navigate("Ledger", { accno: item.ACCNO })}>Ledger</Button>
           
               <Button mode="contained" style={styles.payBtn} textColor="#ffffff"
-                disabled={kuberaComplete || ((item.SCHEMENAME !== "DIGIGOLD" && item.SCHEMENAME !== "DIGISILVER") && (item.STATUS !== "ACTIVE" || item.PAIDTHISMONTH > 0))}
+                disabled={schemeComplete || ((item.SCHEMENAME !== "DIGIGOLD" && item.SCHEMENAME !== "DIGISILVER") && (item.STATUS !== "ACTIVE" || item.PAIDTHISMONTH > 0))}
                 onPress={() => navigation.navigate("PayNow", { accno: item.ACCNO, mobile: mobile })}> Pay Now
               </Button>
             </View>
