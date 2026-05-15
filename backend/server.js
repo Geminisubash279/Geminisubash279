@@ -383,7 +383,7 @@ app.post("/newschpay-success", async (req, res) => {
     payment_id,
     order_id,
     amount,
-    accno,
+    schemeid,
     metal,
     rate,
     weight,
@@ -393,14 +393,12 @@ app.post("/newschpay-success", async (req, res) => {
     area,
     city,
     mobile,
-
     bonus
-
   } = req.body;
 
   console.log("✅ New Scheme Payment Request Received:", { 
     payment_id, 
-    accno, 
+    schemeid, 
     amount, 
     weight, 
     bonus: bonus ? bonus : "⚠️ BONUS IS NULL/ZERO" 
@@ -421,16 +419,20 @@ app.post("/newschpay-success", async (req, res) => {
     await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
     try {
+      // Lock SCHEME row and read fresh REGNO inside transaction
       const req1 = new sql.Request(transaction);
-      const groupcode = accno.split('-')[0];
-      // Lock the SCHEME row exclusively so concurrent requests wait
-      await req1.query(`SELECT REGNO FROM SCHEME WITH (UPDLOCK, ROWLOCK) WHERE GROUPCODE = '${groupcode}'`);
+      req1.input('schemeid', sql.NVarChar, schemeid);
+      const schemeRow = await req1.query(`SELECT GROUPCODE, REGNO FROM SCHEME WITH (UPDLOCK, ROWLOCK) WHERE SCHEMEID = @schemeid`);
+      const groupcode = schemeRow.recordset[0].GROUPCODE;
+      const regno = schemeRow.recordset[0].REGNO;
+      const accno = `${groupcode}-${regno}`;
 
       const req2 = new sql.Request(transaction);
       req2.input('payment_id', sql.NVarChar, payment_id);
       req2.input('order_id', sql.NVarChar, order_id);
       req2.input('amount', sql.Decimal(18,2), amount);
       req2.input('accno', sql.NVarChar, accno);
+      req2.input('schemeid', sql.NVarChar, schemeid);
       req2.input('metal', sql.NVarChar, metal);
       req2.input('rate', sql.Decimal(18,2), rate);
       req2.input('weight', sql.Decimal(18,3), weight);

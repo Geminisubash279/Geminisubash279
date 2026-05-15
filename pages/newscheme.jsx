@@ -121,7 +121,7 @@ function NewScheme({ navigation, route }) {
           payment_id: data.razorpay_payment_id,
           order_id: null,
           amount: amount,
-          accno: scheme?.accno,
+          schemeid: schemename,
           metal: scheme?.MetalType,
           rate: rate,
           weight: scheme?.weightledger === "Y" ? parseFloat(total.toFixed(3)) : 0,
