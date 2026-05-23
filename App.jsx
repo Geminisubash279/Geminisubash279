@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect  } from 'react';
 import { BASE_URL } from './config';
 import { View, Button, Image, TouchableOpacity, StyleSheet, Alert, StatusBar, BackHandler, KeyboardAvoidingView, Platform, ScrollView, Linking } from 'react-native';
 import Icon from "react-native-vector-icons/FontAwesome";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Homepage from './pages/homepage';
@@ -24,10 +25,15 @@ function LoginScreen({ navigation }) {
   const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState(["", "", "", ""]);
+  const [rememberMe, setRememberMe] = useState(false);
   const pinRefs = useRef([]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => true);
+    // Load saved mobile on mount
+    AsyncStorage.getItem('savedMobile').then(saved => {
+      if (saved) { setMobile(saved); setRememberMe(true); }
+    });
     return () => backHandler.remove();
   }, []);
 
@@ -47,6 +53,11 @@ function LoginScreen({ navigation }) {
       .then(res => res.json())
       .then(data => {
         if (data.success) {
+          if (rememberMe) {
+            AsyncStorage.setItem('savedMobile', mobile);
+          } else {
+            AsyncStorage.removeItem('savedMobile');
+          }
           navigation.navigate("Home", { mobile: mobile });
         } else {
           Alert.alert("Invalid OTP");
@@ -122,7 +133,7 @@ const sendOTP = async () => {
         />
 
         <TextInput
-            mode="outlined"   // 👈 important (gives better control)
+            mode="outlined"
             label="Mobile Number"
             value={mobile}
             onChangeText={(text) => {
@@ -131,14 +142,23 @@ const sendOTP = async () => {
             }}
             keyboardType="number-pad"
             maxLength={10}
-
-            textColor="#000000"                 // 👈 dark text
-            outlineColor="#6e1e1e"              // border normal
-            activeOutlineColor="#6e1e1e"        // border focused
-            placeholderTextColor="#999"         // placeholder color
-
+            textColor="#000000"
+            outlineColor="#6e1e1e"
+            activeOutlineColor="#6e1e1e"
+            placeholderTextColor="#999"
             style={{ width: 300, backgroundColor: "#fff" }}
-          />        
+          />
+
+        {/* Remember Me */}
+        <TouchableOpacity
+          onPress={() => setRememberMe(!rememberMe)}
+          style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginLeft: 40, marginTop: 4 }}
+        >
+          <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+            {rememberMe && <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>✓</Text>}
+          </View>
+          <Text style={{ color: '#6e1e1e', fontSize: 13, marginLeft: 6 }}>Remember Me</Text>
+        </TouchableOpacity>        
        
         <View style={styles.otpContainer}>
             {pin.map((digit, index) => (
@@ -358,5 +378,18 @@ hiddenInput: {
   width: 0,
   height: 0,
   opacity: 0,
+},
+checkbox: {
+  width: 18,
+  height: 18,
+  borderWidth: 2,
+  borderColor: '#6e1e1e',
+  borderRadius: 4,
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: '#fff',
+},
+checkboxChecked: {
+  backgroundColor: '#6e1e1e',
 },
 });
